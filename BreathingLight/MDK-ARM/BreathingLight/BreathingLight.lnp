@@ -1,0 +1,25 @@
+--cpu=Cortex-M4.fp.sp
+"breathinglight\startup_stm32f429xx.o"
+"breathinglight\main.o"
+"breathinglight\stm32f4xx_it.o"
+"breathinglight\stm32f4xx_hal_msp.o"
+"breathinglight\stm32f4xx_hal_tim.o"
+"breathinglight\stm32f4xx_hal_tim_ex.o"
+"breathinglight\stm32f4xx_hal_rcc.o"
+"breathinglight\stm32f4xx_hal_rcc_ex.o"
+"breathinglight\stm32f4xx_hal_flash.o"
+"breathinglight\stm32f4xx_hal_flash_ex.o"
+"breathinglight\stm32f4xx_hal_flash_ramfunc.o"
+"breathinglight\stm32f4xx_hal_gpio.o"
+"breathinglight\stm32f4xx_hal_dma_ex.o"
+"breathinglight\stm32f4xx_hal_dma.o"
+"breathinglight\stm32f4xx_hal_pwr.o"
+"breathinglight\stm32f4xx_hal_pwr_ex.o"
+"breathinglight\stm32f4xx_hal_cortex.o"
+"breathinglight\stm32f4xx_hal.o"
+"breathinglight\stm32f4xx_hal_exti.o"
+"breathinglight\system_stm32f4xx.o"
+--strict --scatter "BreathingLight\BreathingLight.sct"
+--summary_stderr --info summarysizes --map --load_addr_map_info --xref --callgraph --symbols
+--info sizes --info totals --info unused --info veneers
+--list "BreathingLight.map" -o BreathingLight\BreathingLight.axf
