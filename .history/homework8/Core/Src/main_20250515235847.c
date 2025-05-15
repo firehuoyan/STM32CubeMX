@@ -189,7 +189,7 @@ int main(void)
     send_i(&huart1, adc);
     send(&huart1, "\r\nVoltage: ");
     send_f(&huart1, adc_u);
-    send(&huart1, "mV\r\n\n");
+    send(&huart1, "mV\r\n");
     HAL_Delay(1000);
     /* USER CODE END WHILE */
 

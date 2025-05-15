@@ -186,11 +186,7 @@ int main(void)
     adc = adcx_get_chx_value(&hadc1, ADC_CHANNEL_13);
     adc_u = adcx_get_u(&hadc1, ADC_CHANNEL_13);
     send(&huart1, "ADC Value(12bit number): ");
-    send_i(&huart1, adc);
-    send(&huart1, "\r\nVoltage: ");
-    send_f(&huart1, adc_u);
-    send(&huart1, "mV\r\n\n");
-    HAL_Delay(1000);
+    se
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */

@@ -187,9 +187,9 @@ int main(void)
     adc_u = adcx_get_u(&hadc1, ADC_CHANNEL_13);
     send(&huart1, "ADC Value(12bit number): ");
     send_i(&huart1, adc);
-    send(&huart1, "\r\nVoltage: ");
+    send(&huart1, "\r\Voltage: ");
     send_f(&huart1, adc_u);
-    send(&huart1, "mV\r\n\n");
+    send(&huart1, "mV\r\n");
     HAL_Delay(1000);
     /* USER CODE END WHILE */
 

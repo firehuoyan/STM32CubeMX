@@ -77,13 +77,6 @@ void send_f(UART_HandleTypeDef *huart, float value)
   send(huart, buffer);
 }
 
-void send_i(UART_HandleTypeDef *huart, int value)
-{
-  char buffer[20];
-  sprintf(buffer, "%d", value);  // 显示整数
-  send(huart, buffer);
-}
-
 
 uint16_t adcx_get_chx_value(ADC_HandleTypeDef *ADCx, uint32_t channel)
 {
@@ -179,18 +172,10 @@ int main(void)
   //   HAL_Delay(1);
   // }
   
-  int adc;
-  float adc_u;
+  int 
   while (1)
   {
-    adc = adcx_get_chx_value(&hadc1, ADC_CHANNEL_13);
-    adc_u = adcx_get_u(&hadc1, ADC_CHANNEL_13);
-    send(&huart1, "ADC Value(12bit number): ");
-    send_i(&huart1, adc);
-    send(&huart1, "\r\nVoltage: ");
-    send_f(&huart1, adc_u);
-    send(&huart1, "mV\r\n\n");
-    HAL_Delay(1000);
+    
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
