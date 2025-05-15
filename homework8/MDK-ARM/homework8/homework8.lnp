@@ -1,0 +1,27 @@
+--cpu=Cortex-M4.fp.sp
+"homework8\startup_stm32f429xx.o"
+"homework8\main.o"
+"homework8\stm32f4xx_it.o"
+"homework8\stm32f4xx_hal_msp.o"
+"homework8\stm32f4xx_hal_adc.o"
+"homework8\stm32f4xx_hal_adc_ex.o"
+"homework8\stm32f4xx_ll_adc.o"
+"homework8\stm32f4xx_hal_rcc.o"
+"homework8\stm32f4xx_hal_rcc_ex.o"
+"homework8\stm32f4xx_hal_flash.o"
+"homework8\stm32f4xx_hal_flash_ex.o"
+"homework8\stm32f4xx_hal_flash_ramfunc.o"
+"homework8\stm32f4xx_hal_gpio.o"
+"homework8\stm32f4xx_hal_dma_ex.o"
+"homework8\stm32f4xx_hal_dma.o"
+"homework8\stm32f4xx_hal_pwr.o"
+"homework8\stm32f4xx_hal_pwr_ex.o"
+"homework8\stm32f4xx_hal_cortex.o"
+"homework8\stm32f4xx_hal.o"
+"homework8\stm32f4xx_hal_exti.o"
+"homework8\stm32f4xx_hal_uart.o"
+"homework8\system_stm32f4xx.o"
+--strict --scatter "homework8\homework8.sct"
+--summary_stderr --info summarysizes --map --load_addr_map_info --xref --callgraph --symbols
+--info sizes --info totals --info unused --info veneers
+--list "homework8.map" -o homework8\homework8.axf
