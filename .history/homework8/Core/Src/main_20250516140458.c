@@ -155,7 +155,7 @@ int main(void)
   // send_d(&huart1, adc, 100);
   char adc_str[50];
 
-  sprintf(adc_str, "VREFINT Value: %.2fmV\r\n\n", adcx_get_u(&hadc1, ADC_CHANNEL_VREFINT));
+  sprintf(adc_str, "VREFINT Value: %.2fmV\r\n\", adcx_get_u(&hadc1, ADC_CHANNEL_VREFINT));
   send(&huart1, adc_str);
 
   // for (int i = 0; i<100; i++)
