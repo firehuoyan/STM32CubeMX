@@ -89,10 +89,11 @@ uint16_t adcx_get_chx_value(ADC_HandleTypeDef *ADCx, uint32_t channel)
 }
 
 // 定义计算电压值的函数
-float vref_factor = 1.0f;  // 矫正因子
+float vref_factor = 1.0f;  
 float adcx_get_u(ADC_HandleTypeDef *ADCx, uint32_t channel)
 {
   uint16_t adc_raw = adcx_get_chx_value(ADCx, channel);
+  // 转换为电压值(毫伏)，确保浮点计算精度
   float voltage = ((float)adc_raw * 3300.0f / 4095.0f) * vref_factor;
   return voltage;
 }
@@ -131,7 +132,11 @@ int main(void)
   MX_ADC1_Init();
   MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
+  // printf("Hello World!\r\n");
+  // char msg[] = "1122Hello World!\r\n";
+  // HAL_UART_Transmit(&huart1, (uint8_t*)msg, strlen(msg), 100);
   char msg[] = "Hello World!\r\n";
+  // 通过循环，一次发送一个字符
   send(&huart1, msg);
 
 
@@ -139,10 +144,24 @@ int main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-
+  // float adc = 0;
+  // adc = adcx_get_u(&hadc1, ADC_CHANNEL_VREFINT);
+  // send(&huart1, "ADC Value: ", 100);
+  // send_d(&huart1, adc, 100);
+  // vref_factor = 1200.0f / adc; 
+  // adc = adcx_get_u(&hadc1, ADC_CHANNEL_VREFINT);
+  // send(&huart1, "ADC Value with calib: ", 100);
+  // send_d(&huart1, adc, 100);
   char adc_str[50];
+
   sprintf(adc_str, "VREFINT Value: %.2fmV\r\n\n", adcx_get_u(&hadc1, ADC_CHANNEL_VREFINT));
   send(&huart1, adc_str);
+
+  // for (int i = 0; i<100; i++)
+  // {
+  //   send_f(&huart1, adcx_get_u(&hadc1, ADC_CHANNEL_VREFINT));
+  //   HAL_Delay(1);
+  // }
   
   int adc;
   float adc_u;
