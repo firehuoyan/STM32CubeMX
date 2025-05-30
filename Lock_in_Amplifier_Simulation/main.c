@@ -32,13 +32,9 @@
 #define REF_FREQ INPUT_FREQ  // 参考信号频率，应与待测信号中的目标频率一致
 #define LUT_SIZE 1024        // 参考信号查找表的大小 (一个周期的点数)
 
-// 低通滤波器参数
-#define LPF_CUTOFF_FREQ 0.05f // 低通滤波器的截止频率 (Hz)
-                             // 应远小于 REF_FREQ，也远小于 REF_FREQ 的两倍频
-                             // 也应小于任何不希望通过的噪声频率
-
 // 输出控制
-#define PRINT_INTERVAL 99   // 每隔多少个采样点打印一次结果
+#define PRINT_INTERVAL_SEC 0.1f   // 每隔多少秒打印一次结果
+#define PRINT_INTERVAL_SAMPLES ((int)(PRINT_INTERVAL_SEC * SAMPLING_RATE)) // 转换为对应的采样点数
 
 // --- 全局数组和变量 ---
 float* input_signal_buffer = NULL; // 修改为指针
@@ -76,8 +72,8 @@ int main() {
     printf("  噪声信号1: %.1f Hz, 幅值 %.2f V, 相位 %.1f 度\n",
            NOISE_FREQ_1, NOISE_AMPLITUDE_1, NOISE_PHASE_DEG_1);
     printf("  参考信号频率: %.1f Hz, LUT大小: %d\n", REF_FREQ, LUT_SIZE);
-    printf("  低通滤波器截止频率: %.1f Hz\n", LPF_CUTOFF_FREQ);
-    printf("  每隔 %d 个采样点输出结果\n", PRINT_INTERVAL);
+    printf("  平均时间窗口: %.2f s\n", AVERAGE_TIME);
+    printf("  每隔 %.2f 秒输出一次结果\n", PRINT_INTERVAL_SEC);
     printf("---------------------------------\n\n");
     printf("时间(s)\t ADC值(V)\t X_filt\t Y_filt\t 幅值(V)\t 相位(deg)\n");
 
@@ -130,28 +126,19 @@ int main() {
     generate_reference_lut();
     printf("参考信号查找表已生成.\n\n");
 
-    // 计算低通滤波器系数 alpha
-    float lpf_alpha;
-    if (LPF_CUTOFF_FREQ > 0 && SAMPLING_RATE > 0) { // 添加检查 SAMPLING_RATE > 0
-        lpf_alpha = (2.0f * M_PI * LPF_CUTOFF_FREQ) / (SAMPLING_RATE + 2.0f * M_PI * LPF_CUTOFF_FREQ);
-    } else {
-        lpf_alpha = 1.0f; // 如果截止频率为0或采样率为0，则alpha为1意味着直接通过，无滤波
-                          // 或者可以设置为0，意味着完全阻塞，取决于期望行为
-        if (LPF_CUTOFF_FREQ > 0) printf("警告: 采样率为0，LPF alpha 设置为1\n");
 
-    }
-    printf("LPF alpha: %f\n", lpf_alpha);
-    printf("---------------------------------\n");
 
     // 在开始循环前清空并创建新文件
     FILE* header_fp = fopen("lock_in_output.csv", "w");
     if (header_fp) {
         // 写入CSV标题行
-        fprintf(header_fp, "时间(s),输入值(V),X_filt,Y_filt,幅值(V),相位(deg)\n");
+        fprintf(header_fp, "时间(s),输入值(V),X_filt,Y_filt,幅值(V),相位(deg),还原信号(V)\n");
         fclose(header_fp);
     } else {
         printf("无法创建 lock_in_output.csv 文件!\n");
     }
+
+    printf("Time(s)\t ADC(V)\t X_filt\t Y_filt\t Amp(V)\t Phase(deg)\t Recovered(V)\n");
 
     // 4. 模拟连续处理
     for (int i = 0; i < NUM_SAMPLES; ++i) {
@@ -198,37 +185,41 @@ int main() {
         float recovered_amplitude, recovered_phase_deg; // 定义局部变量
         calculate_amplitude_and_phase(current_filtered_X, current_filtered_Y, &recovered_amplitude, &recovered_phase_deg);
 
-        // 4.6 定期输出结果
-        if ((i + 1) % PRINT_INTERVAL == 0 || i == NUM_SAMPLES -1) {
-            float current_time = (float)i / SAMPLING_RATE;
-            printf("%.4f\t %.4f\t %.4f\t %.4f\t %.4f\t %.2f\n",
+        // 4.6 还原信号
+        float current_time = (float)i / SAMPLING_RATE;
+        float recovered_phase_rad = recovered_phase_deg * M_PI / 180.0f;
+        float recovered_signal = recovered_amplitude * cosf(2.0f * M_PI * REF_FREQ * current_time - recovered_phase_rad);
+
+        // 4.7 定期输出结果
+        if ((i + 1) % PRINT_INTERVAL_SAMPLES == 0 || i == NUM_SAMPLES -1) {
+            printf("time:%.4f\t input:%.4f\t X:%.4f\t Y:%.4f\t amp:%.4f\t phase:%.2f\t rec:%.4f\n",
                    current_time,
                    current_input_sample,
                    current_filtered_X,
                    current_filtered_Y,
                    recovered_amplitude,
-                   recovered_phase_deg);
+                   recovered_phase_deg,
+                   recovered_signal);
+            fflush(stdout);
         }
-        // 输出最后100个样本 (调试用)
-        if (i >= NUM_SAMPLES - 100) {
-            printf("样本 %d: 输入=%.4f V, X_filt=%.4f, Y_filt=%.4f, 幅值=%.4f V, 相位=%.2f 度\n",
-                   i, current_input_sample, current_filtered_X, current_filtered_Y,
-                   recovered_amplitude, recovered_phase_deg);
-        }
+        // // 输出最后100个样本 (调试用)
+        // if (i >= NUM_SAMPLES - 100) {
+        //     printf("样本 %d: 输入=%.4f V, X_filt=%.4f, Y_filt=%.4f, 幅值=%.4f V, 相位=%.2f 度\n",
+        //            i, current_input_sample, current_filtered_X, current_filtered_Y,
+        //            recovered_amplitude, recovered_phase_deg);
+        // }
         // 将结果保存到文件 (可选)
         FILE* fp = fopen("lock_in_output.csv", "a");
-        float current_time = (float)i / SAMPLING_RATE;
         if (fp) {
-            fprintf(fp, "%.4f,%.4f,%.4f,%.4f,%.4f,%.2f\n",
+            fprintf(fp, "%.4f,%.4f,%.4f,%.4f,%.4f,%.2f,%.4f\n",
                     current_time,
                     current_input_sample,
                     current_filtered_X,
                     current_filtered_Y,
                     recovered_amplitude,
-                    recovered_phase_deg);
+                    recovered_phase_deg,
+                    recovered_signal);
             fclose(fp);
-        } else {
-            printf("无法写入 lock_in_output.csv，跳过结果保存.\n");
         }
     }
     
