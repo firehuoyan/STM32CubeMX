@@ -19,17 +19,18 @@
 // 待测信号参数 (用于生成模拟输入)
 #define INPUT_FREQ 50.0f       // 待测信号中的目标频率 (Hz)
 #define INPUT_AMPLITUDE 1.3f   // 待测信号中目标频率分量的幅值 (V)
-#define INPUT_PHASE_DEG 30.0f  // 待测信号中目标频率分量的相位 (度)
+#define INPUT_PHASE_DEG 90.0f  // 待测信号中目标频率分量的相位 (度)
 #define INPUT_DC_OFFSET 1.7f   // 待测信号的直流偏置 (V)
                                // 使得信号范围如 0.4V (1.7-1.3) 到 3.0V (1.7+1.3)
 
 // 可选：添加一些噪声/干扰信号
 #define NOISE_FREQ_1 150.0f    // 第一个噪声频率 (Hz)
-#define NOISE_AMPLITUDE_1 0.5f // 第一个噪声幅值 (V)
+#define NOISE_AMPLITUDE_1 0.0f // 第一个噪声幅值 (V)
 #define NOISE_PHASE_DEG_1 0.0f // 第一个噪声相位 (度)
 
 // 参考信号参数
-#define REF_FREQ INPUT_FREQ  // 参考信号频率，应与待测信号中的目标频率一致
+#define REF_FREQ_OFFSET 0.01f   // 参考信号相对于待测信号的频率偏移 (Hz)
+#define REF_FREQ (INPUT_FREQ + REF_FREQ_OFFSET)  // 参考信号频率 (Hz)
 #define LUT_SIZE 1024        // 参考信号查找表的大小 (一个周期的点数)
 
 // 输出控制
@@ -132,13 +133,13 @@ int main() {
     FILE* header_fp = fopen("lock_in_output.csv", "w");
     if (header_fp) {
         // 写入CSV标题行
-        fprintf(header_fp, "时间(s),输入值(V),X_filt,Y_filt,幅值(V),相位(deg),还原信号(V)\n");
+        fprintf(header_fp, "时间(s),输入值(V),X_filt,Y_filt,幅值(V),相位(deg),还原信号(V),参考余弦,参考正弦\n");
         fclose(header_fp);
     } else {
         printf("无法创建 lock_in_output.csv 文件!\n");
     }
 
-    printf("Time(s)\t ADC(V)\t X_filt\t Y_filt\t Amp(V)\t Phase(deg)\t Recovered(V)\n");
+    printf("Time(s)\t ADC(V)\t X_filt\t Y_filt\t Amp(V)\t Phase(deg)\t Recovered(V)\t RefCos\t RefSin\n");
 
     // 4. 模拟连续处理
     for (int i = 0; i < NUM_SAMPLES; ++i) {
@@ -211,14 +212,16 @@ int main() {
         // 将结果保存到文件 (可选)
         FILE* fp = fopen("lock_in_output.csv", "a");
         if (fp) {
-            fprintf(fp, "%.4f,%.4f,%.4f,%.4f,%.4f,%.2f,%.4f\n",
+            fprintf(fp, "%.4f,%.4f,%.4f,%.4f,%.4f,%.2f,%.4f,%.4f,%.4f\n",
                     current_time,
                     current_input_sample,
                     current_filtered_X,
                     current_filtered_Y,
                     recovered_amplitude,
                     recovered_phase_deg,
-                    recovered_signal);
+                    recovered_signal,
+                    current_ref_cos,
+                    current_ref_sin);
             fclose(fp);
         }
     }
