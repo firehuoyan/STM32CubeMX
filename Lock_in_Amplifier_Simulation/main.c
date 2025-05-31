@@ -10,6 +10,16 @@
 #define M_PI (3.14159265358979323846f) // 定义 PI (float)
 #endif
 
+// --- 输出模式控制 ---
+typedef enum {
+    OUTPUT_MODE_RECOVERED_SIGNAL = 1,
+    OUTPUT_MODE_INTERNAL_REF_SIGNALS = 2,
+    OUTPUT_MODE_REF_COS_AND_RECOVERED = 3
+} OutputMode;
+
+// 全局变量，用于控制输出模式
+OutputMode g_output_mode = OUTPUT_MODE_REF_COS_AND_RECOVERED;
+
 // --- 可配置参数 ---
 // 信号参数
 #define SAMPLING_RATE 10000.0f // 采样率 (Hz)，例如10kHz
@@ -19,9 +29,9 @@
 #define BUFFER_SIZE ((int)(SAMPLING_RATE * AVERAGE_TIME)) // 缓冲区大小
 
 // 待测信号参数 (用于生成模拟输入)
-#define INPUT_FREQ 50.5f       // 待测信号中的目标频率 (Hz)
+#define INPUT_FREQ 50.0f       // 待测信号中的目标频率 (Hz)
 #define INPUT_AMPLITUDE 1.3f   // 待测信号中目标频率分量的幅值 (V)
-#define INPUT_PHASE_DEG 89.0f  // 待测信号中目标频率分量的相位 (度)
+#define INPUT_PHASE_DEG 80.0f  // 待测信号中目标频率分量的相位 (度)
 #define INPUT_DC_OFFSET 1.7f   // 待测信号的直流偏置 (V)
                                // 使得信号范围如 0.4V (1.7-1.3) 到 3.0V (1.7+1.3)
 
@@ -82,6 +92,7 @@ int main() {
     printf("  参考信号频率: %.1f Hz, LUT大小: %d\n", REF_FREQ, LUT_SIZE);
     printf("  平均时间窗口: %.2f s\n", AVERAGE_TIME);
     printf("  每隔 %.2f 秒输出一次结果\n", PRINT_INTERVAL_SEC);
+    printf("  当前输出模式: %d (1:重建信号, 2:内部参考, 3:参考余弦+重建)\n", g_output_mode);
     printf("---------------------------------\n\n");
     printf("时间(s)\t ADC值(V)\t X_filt\t Y_filt\t 幅值(V)\t 相位(deg)\n");
 
@@ -116,14 +127,14 @@ int main() {
     // }
     // 绘制待测信号图像
     // （PC端可选：输出CSV文件，便于用Excel/Matlab/Python绘图）
-    FILE* fp = fopen("input_signal.csv", "w");
-    if (fp) {
-        fprintf(fp, "sample_index,time(s),voltage(V)\n");
+    FILE* fp_input = fopen("input_signal.csv", "w");
+    if (fp_input) {
+        fprintf(fp_input, "sample_index,time(s),voltage(V)\n");
         for (int i = 0; i < NUM_SAMPLES; ++i) {
             float t = (float)i / SAMPLING_RATE;
-            fprintf(fp, "%d,%.6f,%.6f\n", i, t, input_signal_buffer[i]);
+            fprintf(fp_input, "%d,%.6f,%.6f\n", i, t, input_signal_buffer[i]);
         }
-        fclose(fp);
+        fclose(fp_input);
         printf("已导出 input_signal.csv，可用Excel/Matlab/Python绘图.\n");
     } else {
         printf("无法写入 input_signal.csv，跳过信号导出.\n");
@@ -137,14 +148,23 @@ int main() {
 
 
     // 在开始循环前清空并创建新文件
-    FILE* header_fp = fopen("lock_in_output.csv", "w");
-    if (header_fp) {
-        // 写入CSV标题行
-        fprintf(header_fp, "时间(s),输入值(V),X_filt,Y_filt,幅值(V),相位(deg),还原信号(V),参考余弦,参考正弦\n");
-        fclose(header_fp);
-    } else {
+    FILE* fp = fopen("lock_in_output.csv", "w");
+    if (!fp) {
         printf("无法创建 lock_in_output.csv 文件!\n");
+        return -1;
     }
+    // 写入CSV标题行
+    fprintf(fp, "时间(s),输入值(V),X_filt,Y_filt,幅值(V),相位(deg),还原信号(V),参考余弦,参考正弦\n");
+
+    // 存储两个通道的文件
+    FILE* fp_2 = fopen("lock_in_output_2.csv", "w");
+    if (!fp_2) {
+        printf("无法创建 lock_in_output_2.csv 文件!\n");
+        fclose(fp);  // 关闭已打开的文件
+        return -1;
+    }
+    // 写入CSV标题行
+    fprintf(fp_2, "channel1,channel2\n");
 
     printf("Time(s)\t ADC(V)\t X_filt\t Y_filt\t Amp(V)\t Phase(deg)\t Recovered(V)\t RefCos\t RefSin\n");
 
@@ -200,23 +220,50 @@ int main() {
         float recovered_signal = recovered_amplitude * cosf(2.0f * M_PI * REF_FREQ * current_time - recovered_phase_rad);
 
         // 4.7 定期输出结果
-        if ((i + 1) % PRINT_INTERVAL_SAMPLES == 0) { // 修改打印条件以适应无限循环
-            printf("time:%.4f\t input:%.4f\t X:%.4f\t Y:%.4f\t amp:%.4f\t phase:%.2f\t rec:%.4f\n",
-                   current_time,
-                   current_input_sample,
-                   current_filtered_X,
-                   current_filtered_Y,
-                   recovered_amplitude,
-                   recovered_phase_deg,
-                   recovered_signal);
-            fflush(stdout);
+        // // 调试内容
+        // if ((i + 1) % PRINT_INTERVAL_SAMPLES == 0) { 
+        //     printf("time:%.4f\t input:%.4f\t X:%.4f\t Y:%.4f\t amp:%.4f\t phase:%.2f\t rec:%.4f\n",
+        //            current_time,
+        //            current_input_sample,
+        //            current_filtered_X,
+        //            current_filtered_Y,
+        //            recovered_amplitude,
+        //            recovered_phase_deg,
+        //            recovered_signal);
+        //     fflush(stdout);
+        // }
+
+        // 第一部分输出：重建信号的频率、幅值和相位
+        printf("\n--- 当前重建信号参数 ---\n");
+        printf("频率: %.2f Hz\n", REF_FREQ);
+        printf("幅值: %.4f V\n", recovered_amplitude);
+        printf("相位: %.2f 度\n", recovered_phase_deg);
+        printf("---------------------------------\n");
+
+        // 根据输出模式添加新的输出
+        printf("--- 当前输出模式 %d 的额外信息 ---\n", g_output_mode);
+        switch (g_output_mode) {
+            case OUTPUT_MODE_RECOVERED_SIGNAL:
+                printf("待测信号: %.4f, 重建信号: %.4f V\n", current_input_sample, recovered_signal);
+                fprintf(fp_2, "%.4f,%.4f\n", current_input_sample, recovered_signal);
+                break;
+            case OUTPUT_MODE_INTERNAL_REF_SIGNALS:
+                printf("内部参考信号 - 余弦: %.4f, 正弦: %.4f\n", current_ref_cos, current_ref_sin);
+                fprintf(fp_2, "%.4f,%.4f\n", current_ref_cos, current_ref_sin);
+                break;
+            case OUTPUT_MODE_REF_COS_AND_RECOVERED:
+                printf("参考余弦: %.4f, 重建信号: %.4f V\n", current_ref_cos, recovered_signal);
+                fprintf(fp_2, "%.4f,%.4f\n", current_ref_cos, recovered_signal);
+                break;
         }
-        // 输出最后100个样本 (调试用)
-        if (i >= NUM_SAMPLES - 100) {
-            printf("样本 %d: 输入=%.4f V, X_filt=%.4f, Y_filt=%.4f, 幅值=%.4f V, 相位=%.2f 度\n",
-                   i, current_input_sample, current_filtered_X, current_filtered_Y,
-                   recovered_amplitude, recovered_phase_deg);
-        }
+
+
+        // // 输出最后100个样本 (调试用)
+        // if (i >= NUM_SAMPLES - 100) {
+        //     printf("样本 %d: 输入=%.4f V, X_filt=%.4f, Y_filt=%.4f, 幅值=%.4f V, 相位=%.2f 度\n",
+        //            i, current_input_sample, current_filtered_X, current_filtered_Y,
+        //            recovered_amplitude, recovered_phase_deg);
+        // }
 
         // // 将结果保存到文件
         // FILE* fp = fopen("lock_in_output.csv", "a");
@@ -241,6 +288,10 @@ int main() {
             break;
         }
     }
+    
+    // 关闭文件
+    fclose(fp);
+    fclose(fp_2);
     
     // 释放分配的内存
     free(input_signal_buffer);
