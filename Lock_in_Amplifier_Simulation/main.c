@@ -1,7 +1,9 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <math.h> // 需要链接 -lm
-#include <string.h> // 添加string.h用于memset函数
+#include <math.h>    // 需要链接 -lm
+#include <string.h>  // 添加string.h用于memset函数
+#include <time.h>    // 添加time.h用于计时
+
 
 // --- 全局常量定义 ---
 #ifndef M_PI
@@ -11,15 +13,15 @@
 // --- 可配置参数 ---
 // 信号参数
 #define SAMPLING_RATE 10000.0f // 采样率 (Hz)，例如10kHz
-#define SIGNAL_DURATION 20.0f   // 信号持续时间 (秒) - 用于生成待测信号的总长度
+#define SIGNAL_DURATION 5.0f   // 信号持续时间 (秒) - 用于生成待测信号的总长度
 #define NUM_SAMPLES ((int)(SAMPLING_RATE * SIGNAL_DURATION)) // 总采样点数
 #define AVERAGE_TIME 0.1f      // 平均时间窗口长度（秒）
 #define BUFFER_SIZE ((int)(SAMPLING_RATE * AVERAGE_TIME)) // 缓冲区大小
 
 // 待测信号参数 (用于生成模拟输入)
-#define INPUT_FREQ 50.0f       // 待测信号中的目标频率 (Hz)
+#define INPUT_FREQ 50.5f       // 待测信号中的目标频率 (Hz)
 #define INPUT_AMPLITUDE 1.3f   // 待测信号中目标频率分量的幅值 (V)
-#define INPUT_PHASE_DEG 90.0f  // 待测信号中目标频率分量的相位 (度)
+#define INPUT_PHASE_DEG 89.0f  // 待测信号中目标频率分量的相位 (度)
 #define INPUT_DC_OFFSET 1.7f   // 待测信号的直流偏置 (V)
                                // 使得信号范围如 0.4V (1.7-1.3) 到 3.0V (1.7+1.3)
 
@@ -29,9 +31,9 @@
 #define NOISE_PHASE_DEG_1 0.0f // 第一个噪声相位 (度)
 
 // 参考信号参数
-#define REF_FREQ_OFFSET 0.01f   // 参考信号相对于待测信号的频率偏移 (Hz)
+#define REF_FREQ_OFFSET 0.0f   // 参考信号相对于待测信号的频率偏移 (Hz)
 #define REF_FREQ (INPUT_FREQ + REF_FREQ_OFFSET)  // 参考信号频率 (Hz)
-#define LUT_SIZE 1024        // 参考信号查找表的大小 (一个周期的点数)
+#define LUT_SIZE 8192        // 参考信号查找表的大小 (一个周期的点数)
 
 // 输出控制
 #define PRINT_INTERVAL_SEC 0.1f   // 每隔多少秒打印一次结果
@@ -49,7 +51,7 @@ int buffer_index = 0;
 int buffer_filled = 0;
 
 // 参考信号相位累加器
-float ref_phase_accumulator = 0.0f;
+double ref_phase_accumulator = 0.0f;
 
 // --- 函数声明 ---
 void generate_input_signal_buffer(float freq, float amplitude, float phase_deg, float dc_offset,
@@ -61,6 +63,11 @@ float get_simulated_adc_sample(int sample_index); // 模拟从ADC读取一个样
 
 // --- 主函数 ---
 int main() {
+    clock_t start_time, end_time;
+    double cpu_time_used;
+
+    start_time = clock(); // 记录开始时间
+
     printf("锁相放大器算法模拟 (流式处理)\n");
     printf("---------------------------------\n");
     printf("参数设置:\n");
@@ -102,11 +109,11 @@ int main() {
                                NOISE_FREQ_1, NOISE_AMPLITUDE_1, NOISE_PHASE_DEG_1);
     printf("待测信号缓存已生成.\n");
 
-    // 输出待测信号前100个样本 (调试用)
-    printf("前100个待测信号样本:\n");
-    for (int i = 0; i < 100 && i < NUM_SAMPLES; ++i) {
-        printf("样本 %d: %.4f V\n", i, input_signal_buffer[i]);
-    }
+    // // 输出待测信号前100个样本 (调试用)
+    // printf("前100个待测信号样本:\n");
+    // for (int i = 0; i < 100 && i < NUM_SAMPLES; ++i) {
+    //     printf("样本 %d: %.4f V\n", i, input_signal_buffer[i]);
+    // }
     // 绘制待测信号图像
     // （PC端可选：输出CSV文件，便于用Excel/Matlab/Python绘图）
     FILE* fp = fopen("input_signal.csv", "w");
@@ -142,7 +149,8 @@ int main() {
     printf("Time(s)\t ADC(V)\t X_filt\t Y_filt\t Amp(V)\t Phase(deg)\t Recovered(V)\t RefCos\t RefSin\n");
 
     // 4. 模拟连续处理
-    for (int i = 0; i < NUM_SAMPLES; ++i) {
+    int i = 0; // 初始化采样索引
+    while (1) { // 修改为无限循环
         // 4.1 模拟从ADC获取当前采样值
         float current_input_sample = get_simulated_adc_sample(i);
 
@@ -192,7 +200,7 @@ int main() {
         float recovered_signal = recovered_amplitude * cosf(2.0f * M_PI * REF_FREQ * current_time - recovered_phase_rad);
 
         // 4.7 定期输出结果
-        if ((i + 1) % PRINT_INTERVAL_SAMPLES == 0 || i == NUM_SAMPLES -1) {
+        if ((i + 1) % PRINT_INTERVAL_SAMPLES == 0) { // 修改打印条件以适应无限循环
             printf("time:%.4f\t input:%.4f\t X:%.4f\t Y:%.4f\t amp:%.4f\t phase:%.2f\t rec:%.4f\n",
                    current_time,
                    current_input_sample,
@@ -203,26 +211,34 @@ int main() {
                    recovered_signal);
             fflush(stdout);
         }
-        // // 输出最后100个样本 (调试用)
-        // if (i >= NUM_SAMPLES - 100) {
-        //     printf("样本 %d: 输入=%.4f V, X_filt=%.4f, Y_filt=%.4f, 幅值=%.4f V, 相位=%.2f 度\n",
-        //            i, current_input_sample, current_filtered_X, current_filtered_Y,
-        //            recovered_amplitude, recovered_phase_deg);
+        // 输出最后100个样本 (调试用)
+        if (i >= NUM_SAMPLES - 100) {
+            printf("样本 %d: 输入=%.4f V, X_filt=%.4f, Y_filt=%.4f, 幅值=%.4f V, 相位=%.2f 度\n",
+                   i, current_input_sample, current_filtered_X, current_filtered_Y,
+                   recovered_amplitude, recovered_phase_deg);
+        }
+
+        // // 将结果保存到文件
+        // FILE* fp = fopen("lock_in_output.csv", "a");
+        // if (fp) {
+        //     fprintf(fp, "%.4f,%.4f,%.4f,%.4f,%.4f,%.2f,%.4f,%.4f,%.4f\n",
+        //             current_time,
+        //             current_input_sample,
+        //             current_filtered_X,
+        //             current_filtered_Y,
+        //             recovered_amplitude,
+        //             recovered_phase_deg,
+        //             recovered_signal,
+        //             current_ref_cos,
+        //             current_ref_sin);
+        //     fclose(fp);
         // }
-        // 将结果保存到文件 (可选)
-        FILE* fp = fopen("lock_in_output.csv", "a");
-        if (fp) {
-            fprintf(fp, "%.4f,%.4f,%.4f,%.4f,%.4f,%.2f,%.4f,%.4f,%.4f\n",
-                    current_time,
-                    current_input_sample,
-                    current_filtered_X,
-                    current_filtered_Y,
-                    recovered_amplitude,
-                    recovered_phase_deg,
-                    recovered_signal,
-                    current_ref_cos,
-                    current_ref_sin);
-            fclose(fp);
+
+        i++; // 在循环末尾递增采样索引
+
+        // 调试用的退出条件
+        if (i >= NUM_SAMPLES) {
+            break;
         }
     }
     
@@ -233,6 +249,10 @@ int main() {
     
     printf("---------------------------------\n");
     printf("模拟处理完成.\n");
+
+    end_time = clock(); // 记录结束时间
+    cpu_time_used = ((double) (end_time - start_time)) / CLOCKS_PER_SEC;
+    printf("程序运行时间: %.4f 秒\n", cpu_time_used);
 
     return 0;
 }
@@ -299,20 +319,58 @@ void generate_reference_lut(void) {
  * @param sin_val 指针，用于返回当前的正弦参考值
  */
 void get_reference_samples(float* cos_val, float* sin_val) {
-    float phase_increment = (REF_FREQ / SAMPLING_RATE) * (float)LUT_SIZE;
+    // 只在第一次调用时计算一次
+    static float phase_increment = (REF_FREQ / SAMPLING_RATE) * (float)LUT_SIZE;
+
+    // // 查表方法 (四舍五入)
+    // unsigned int lut_index = (unsigned int)(ref_phase_accumulator + 0.5f) % LUT_SIZE;
+    // *cos_val = ref_cos_lut[lut_index];
+    // *sin_val = ref_sin_lut[lut_index];
+
+    // 使用线性插值
+    float current_exact_phase = ref_phase_accumulator; // 当前的精确相位
+    // 计算插值所需的整数索引和小数部分
+    // floorf确保向下取整, 例如 current_exact_phase = 3.7, index_floor = 3
+    // current_exact_phase = 3.0, index_floor = 3
+    unsigned int index_floor = (unsigned int)floorf(current_exact_phase);
+    float fraction = current_exact_phase - (float)index_floor; // 小数部分, e.g., 0.7 or 0.0
+    // 计算在LUT中实际使用的两个索引 (考虑环绕)
+    unsigned int lut_idx0 = index_floor % LUT_SIZE;       // 第一个采样点索引, e.g., 3 % LUT_SIZE
+    unsigned int lut_idx1 = (index_floor + 1) % LUT_SIZE; // 第二个采样点索引, e.g., (3+1) % LUT_SIZE
+    // 对余弦分量进行线性插值
+    float cos_val0 = ref_cos_lut[lut_idx0];
+    float cos_val1 = ref_cos_lut[lut_idx1];
+    *cos_val = cos_val0 + fraction * (cos_val1 - cos_val0);
+    // 对正弦分量进行线性插值
+    float sin_val0 = ref_sin_lut[lut_idx0];
+    float sin_val1 = ref_sin_lut[lut_idx1];
+    *sin_val = sin_val0 + fraction * (sin_val1 - sin_val0);
+
     ref_phase_accumulator += phase_increment;
 
     if (ref_phase_accumulator >= (float)LUT_SIZE) {
          ref_phase_accumulator = fmodf(ref_phase_accumulator, (float)LUT_SIZE);
     }
-
-    unsigned int lut_index = (unsigned int)ref_phase_accumulator;
-    // 在 STM32 上，如果 LUT_SIZE 是 2 的幂，可以用位运算优化取模: lut_index = ((unsigned int)ref_phase_accumulator) & (LUT_SIZE - 1);
-    if (lut_index >= LUT_SIZE) lut_index = LUT_SIZE - 1; // 防御性编程，虽然fmodf后应该不会超
-
-    *cos_val = ref_cos_lut[lut_index];
-    *sin_val = ref_sin_lut[lut_index];
 }
+// void get_reference_samples(float* cos_val, float* sin_val) {
+//     // 静态整数计数器，跟踪总的采样点数
+//     static unsigned int n_sample_count = 0;
+//     // 1. 计算从开始到现在的总相位（未进行周期缠绕）
+//     float total_unwrapped_phase = (float)n_sample_count * (REF_FREQ / SAMPLING_RATE) * (float)LUT_SIZE;
+//     // 2. 将总相位映射到当前 LUT 的一个周期内 [0, LUT_SIZE)
+//     float current_phase_in_lut = fmodf(total_unwrapped_phase, (float)LUT_SIZE);
+//     // 3. 计算 LUT 索引，使用 +0.5f 实现四舍五入到最近的整数索引
+//     unsigned int lut_index = (unsigned int)(current_phase_in_lut + 0.5f);
+
+//     // 4. 取模确保索引在 [0, LUT_SIZE-1] 范围内
+//     lut_index %= LUT_SIZE;
+//     // 5. 从查找表获取参考值
+//     *cos_val = ref_cos_lut[lut_index];
+//     *sin_val = ref_sin_lut[lut_index];
+
+//     // 6. 增加采样计数
+//     n_sample_count++;
+// }
 
 /**
  * @brief 根据 X 和 Y 计算原始信号的幅值和相位

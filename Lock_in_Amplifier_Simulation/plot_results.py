@@ -35,12 +35,13 @@ ax1.plot(lock_in_output['时间(s)'], lock_in_output['幅值(V)'], 'b-', label='
 ax1.set_ylabel('幅值 (V)')
 ax1.grid(True)
 ax1.legend(loc='upper left')
-plt.xlim(0,10.5)
+# plt.xlim(0,10.5)
 
 ax2 = ax1.twinx()
 ax2.plot(lock_in_output['时间(s)'], lock_in_output['相位(deg)'], 'r-', label='相位')
 ax2.set_ylabel('相位 (度)')
 ax2.legend(loc='upper right')
+
 
 # 4. 原始信号与还原信号对比（放大显示）
 plt.subplot(614)
