@@ -372,13 +372,9 @@ float get_simulated_adc_sample(int sample_index) {
 }
 
 /**
- * @brief 生成待测信号并存储到全局缓冲区 input_signal_buffer
- * 
- * 生成两段不同的信号：
- * - 前SIGNAL1_DURATION秒为信号1参数
- * - 后SIGNAL2_DURATION秒为信号2参数
- *
- * 信号模型: s(t) = dc_offset + A * cos(2*pi*f*t - phi) + Noise(t)
+ * @brief 生成输入信号缓冲区
+ * 该函数生成两个不同频率的正弦信号，并添加噪声成分。
+ * 信号1和信号2的持续时间由 SIGNAL1_DURATION 和 SIGNAL2_DURATION 定义。
  */
 void generate_input_signal_buffer(void) {
     float t;
@@ -433,11 +429,11 @@ void generate_reference_lut(void) {
 /**
  * @brief 更新参考信号频率
  * @param new_freq 新的参考信号频率 (Hz)
+ * 
+ * @note 查找表包含归一化的正弦/余弦值(0到2π)，不依赖于频率。
  */
 void update_reference_frequency(float new_freq) {
     g_ref_freq = new_freq;
-    // 重新生成查找表
-    generate_reference_lut();
     // 重置相位累加器
     ref_phase_accumulator = 0.0f;
     // 记录本次频率调整的时间
