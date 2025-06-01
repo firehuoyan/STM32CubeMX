@@ -66,7 +66,7 @@ double ref_phase_accumulator = 0.0f;
 
 // 在全局变量区域添加
 #define MAX_FREQ_ADJUST 0.1f    // 最大频率调整范围 (Hz)
-#define PHASE_DIFF_THRESHOLD 0.001f  // 相位差阈值 (度)
+#define PHASE_DIFF_THRESHOLD 0.002f  // 相位差阈值 (度)
 #define FREQ_ADJUST_STEP 0.001f   // 频率调整步长 (Hz)
 
 // 用于频率跟踪的变量
@@ -74,7 +74,8 @@ float g_last_phase = 0.0f;      // 上一次的相位值
 float g_last_freq_adjust_time = 0.0f;  // 上次频率调整的时间（秒）
 int g_sample_count = 0;         // 总采样计数，用于时间计算
 
-#define WINDOW_SIZE 300  // 每个窗口的点数
+#define WINDOW_TIME 0.05f  // 窗口时间长度
+#define WINDOW_SIZE ((int)(WINDOW_TIME * SAMPLING_RATE)) // 窗口大小 (采样点数)
 float g_window1_sum = 0.0f;     // 第一个窗口的相位和
 float g_window2_sum = 0.0f;     // 第二个窗口的相位和
 int g_window1_count = 0;        // 第一个窗口的计数
@@ -190,12 +191,13 @@ int main() {
 
     // 4. 模拟连续处理
     int i = 0; // 初始化采样索引
-    while (1) { // 修改为无限循环
+    while (1) { 
+        
         // 调试，在time为30s时，更新参考频率
         float time_30s = 30.0f;
         int sample_index_30s = (int)(time_30s * SAMPLING_RATE);
         if (i == sample_index_30s) {
-            update_reference_frequency(50.0f);
+            update_reference_frequency(50.1f);
         }
 
 
@@ -498,7 +500,7 @@ int auto_frequency_tracking(float current_phase) {
     g_sample_count++;
     
     // 如果距离上次频率调整的时间小于AVERAGE_TIME，直接返回
-    if (current_time - g_last_freq_adjust_time < AVERAGE_TIME) {
+    if (current_time - g_last_freq_adjust_time < AVERAGE_TIME*2) {
         // 重置所有窗口数据
         g_window1_sum = 0.0f;
         g_window2_sum = 0.0f;
@@ -528,13 +530,15 @@ int auto_frequency_tracking(float current_phase) {
         if (phase_diff > 180.0f) phase_diff -= 360.0f;
         if (phase_diff < -180.0f) phase_diff += 360.0f;
         
-        // printf("时间: %.2f s, 窗口1平均相位: %.3f, 窗口2平均相位: %.3f, 相位差: %.3f\n",
-        //        current_time, avg_phase1, avg_phase2, phase_diff);
+        // printf("时间: %.2f s, 窗口1平均相位: %.3f, 窗口2平均相位: %.3f, 相位差: %.3f\n",current_time, avg_phase1, avg_phase2, phase_diff);
         
         // 如果相位差超过阈值，调整频率
         if (fabsf(phase_diff) > PHASE_DIFF_THRESHOLD) {
             // 根据相位差方向调整频率
-            float freq_adjust = -90 * phase_diff * FREQ_ADJUST_STEP;
+            // float freq_adjust = -90 * phase_diff * FREQ_ADJUST_STEP;
+            // 理论精确补偿 (Δf = Δφ / (360 × T_window))
+            float freq_adjust = - phase_diff / (360.0f * WINDOW_TIME);
+            printf("时间: %.2f s, 窗口1平均相位: %.6f, 窗口2平均相位: %.6f, 相位差: %.6f\n",current_time, avg_phase1, avg_phase2, phase_diff);
             printf("freq_adjust: %.6f\n", freq_adjust);
             
             // 限制调整范围
