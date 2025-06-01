@@ -205,8 +205,14 @@ int main() {
     // 4. 模拟连续处理
     int i = 0; // 初始化采样索引
     while (1) { 
+
+        // 记数超过一千次，则while循环不执行后续任务 TODO数组半满的时候把loop_count清零
+        while (i > 1000) {
+
+        }
         
-        // // 调试，在time为30s时，更新参考频率
+        
+        // // 调试，在time为30s时，更新参考频率 TODO 控制频率命令
         // float time_30s = 25.0f;
         // int sample_index_30s = (int)(time_30s * SAMPLING_RATE);
         // if (i == sample_index_30s) {
@@ -284,14 +290,14 @@ int main() {
             fflush(stdout);
         }
 
-        // // 第一部分输出：重建信号的频率、幅值和相位
+        // // 第一部分输出：重建信号的频率、幅值和相位  TODO串口输出
         // printf("\n--- 当前重建信号参数 ---\n");
         // printf("频率: %.2f Hz\n", g_ref_freq);
         // printf("幅值: %.4f V\n", recovered_amplitude);
         // printf("相位: %.2f 度\n", recovered_phase_deg);
         // printf("---------------------------------\n");
 
-        // // 根据输出模式添加新的输出
+        // // 根据输出模式添加新的输出  TODO DAC输出
         // printf("--- 当前输出模式 %d 的额外信息 ---\n", g_output_mode);
         // switch (g_output_mode) {
         //     case OUTPUT_MODE_RECOVERED_SIGNAL:
@@ -316,7 +322,7 @@ int main() {
         //            recovered_amplitude, recovered_phase_deg);
         // }
 
-        // 将结果保存到文件
+        // 将结果保存到文件(调试用)
         if (fp) {
             fprintf(fp, "%.4f,%.4f,%.4f,%.4f,%.4f,%.2f,%.4f,%.4f,%.4f\n",
                     current_time,
@@ -429,8 +435,6 @@ void generate_reference_lut(void) {
 /**
  * @brief 更新参考信号频率
  * @param new_freq 新的参考信号频率 (Hz)
- * 
- * @note 查找表包含归一化的正弦/余弦值(0到2π)，不依赖于频率。
  */
 void update_reference_frequency(float new_freq) {
     g_ref_freq = new_freq;
