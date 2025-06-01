@@ -64,6 +64,22 @@ int buffer_filled = 0;
 // 参考信号相位累加器
 double ref_phase_accumulator = 0.0f;
 
+// 在全局变量区域添加
+#define MAX_FREQ_ADJUST 0.1f    // 最大频率调整范围 (Hz)
+#define PHASE_DIFF_THRESHOLD 0.001f  // 相位差阈值 (度)
+#define FREQ_ADJUST_STEP 0.001f   // 频率调整步长 (Hz)
+
+// 用于频率跟踪的变量
+float g_last_phase = 0.0f;      // 上一次的相位值
+float g_last_freq_adjust_time = 0.0f;  // 上次频率调整的时间（秒）
+int g_sample_count = 0;         // 总采样计数，用于时间计算
+
+#define WINDOW_SIZE 300  // 每个窗口的点数
+float g_window1_sum = 0.0f;     // 第一个窗口的相位和
+float g_window2_sum = 0.0f;     // 第二个窗口的相位和
+int g_window1_count = 0;        // 第一个窗口的计数
+int g_window2_count = 0;        // 第二个窗口的计数
+
 // --- 函数声明 ---
 void generate_input_signal_buffer(float freq, float amplitude, float phase_deg, float dc_offset,
                                   float noise_freq1, float noise_amp1, float noise_phase_deg1);
@@ -71,7 +87,9 @@ void generate_reference_lut(void);
 void get_reference_samples(float* cos_val, float* sin_val);
 void calculate_amplitude_and_phase(float X, float Y, float* amplitude, float* phase_deg);
 float get_simulated_adc_sample(int sample_index);
-void update_reference_frequency(float new_freq);  // 新增函数声明
+void update_reference_frequency(float new_freq);
+int auto_frequency_tracking(float current_phase);
+
 
 // --- 主函数 ---
 int main() {
@@ -173,12 +191,12 @@ int main() {
     // 4. 模拟连续处理
     int i = 0; // 初始化采样索引
     while (1) { // 修改为无限循环
-        // // 调试，在time为30s时，更新参考频率
-        // float time_30s = 30.0f;
-        // int sample_index_30s = (int)(time_30s * SAMPLING_RATE);
-        // if (i == sample_index_30s) {
-        //     update_reference_frequency(50.0f);
-        // }
+        // 调试，在time为30s时，更新参考频率
+        float time_30s = 30.0f;
+        int sample_index_30s = (int)(time_30s * SAMPLING_RATE);
+        if (i == sample_index_30s) {
+            update_reference_frequency(50.0f);
+        }
 
 
         // 4.1 模拟从ADC获取当前采样值
@@ -221,8 +239,15 @@ int main() {
         buffer_index = (buffer_index + 1) % BUFFER_SIZE;
 
         // 4.5 计算幅值和相位
-        float recovered_amplitude, recovered_phase_deg; // 定义局部变量
+        float recovered_amplitude, recovered_phase_deg;
         calculate_amplitude_and_phase(current_filtered_X, current_filtered_Y, &recovered_amplitude, &recovered_phase_deg);
+
+        // 4.5.1 执行自动频率跟踪
+        int freq_adjusted = auto_frequency_tracking(recovered_phase_deg);
+        if (freq_adjusted) {
+            printf("时间: %.2f s, 参考频率已调整至: %.3f Hz\n", 
+                   (float)i / SAMPLING_RATE, g_ref_freq);
+        }
 
         // 4.6 还原信号
         float current_time = (float)i / SAMPLING_RATE;
@@ -381,6 +406,9 @@ void update_reference_frequency(float new_freq) {
     generate_reference_lut();
     // 重置相位累加器
     ref_phase_accumulator = 0.0f;
+    // 记录本次频率调整的时间
+    float current_time = (float)g_sample_count / SAMPLING_RATE;
+    g_last_freq_adjust_time = current_time;
 }
 
 /**
@@ -457,4 +485,84 @@ void calculate_amplitude_and_phase(float X, float Y, float* amplitude, float* ph
     *amplitude = 2.0f * sqrtf(X * X + Y * Y);
     float phase_rad = atan2f(Y, X);
     *phase_deg = phase_rad * 180.0f / M_PI;
+}
+
+/**
+ * @brief 自动频率跟踪算法
+ * @param current_phase 当前测量的相位值 (度)
+ * @return 是否需要调整频率
+ */
+int auto_frequency_tracking(float current_phase) {
+    // 获取当前时间
+    float current_time = (float)g_sample_count / SAMPLING_RATE;
+    g_sample_count++;
+    
+    // 如果距离上次频率调整的时间小于AVERAGE_TIME，直接返回
+    if (current_time - g_last_freq_adjust_time < AVERAGE_TIME) {
+        // 重置所有窗口数据
+        g_window1_sum = 0.0f;
+        g_window2_sum = 0.0f;
+        g_window1_count = 0;
+        g_window2_count = 0;
+        return 0;
+    }
+    
+    // 根据当前窗口状态更新相应的累加器
+    if (g_window1_count < WINDOW_SIZE) {
+        g_window1_sum += current_phase;
+        g_window1_count++;
+    } else if (g_window2_count < WINDOW_SIZE) {
+        g_window2_sum += current_phase;
+        g_window2_count++;
+    }
+    
+    // 当两个窗口都填满时，进行比较和判断
+    if (g_window1_count == WINDOW_SIZE && g_window2_count == WINDOW_SIZE) {
+        // 计算两个窗口的平均相位
+        float avg_phase1 = g_window1_sum / WINDOW_SIZE;
+        float avg_phase2 = g_window2_sum / WINDOW_SIZE;
+        
+        // 计算两个窗口的平均相位差
+        float phase_diff = avg_phase2 - avg_phase1;
+        // 处理相位跳变
+        if (phase_diff > 180.0f) phase_diff -= 360.0f;
+        if (phase_diff < -180.0f) phase_diff += 360.0f;
+        
+        // printf("时间: %.2f s, 窗口1平均相位: %.3f, 窗口2平均相位: %.3f, 相位差: %.3f\n",
+        //        current_time, avg_phase1, avg_phase2, phase_diff);
+        
+        // 如果相位差超过阈值，调整频率
+        if (fabsf(phase_diff) > PHASE_DIFF_THRESHOLD) {
+            // 根据相位差方向调整频率
+            float freq_adjust = -90 * phase_diff * FREQ_ADJUST_STEP;
+            printf("freq_adjust: %.6f\n", freq_adjust);
+            
+            // 限制调整范围
+            if (freq_adjust > MAX_FREQ_ADJUST) freq_adjust = MAX_FREQ_ADJUST;
+            if (freq_adjust < -MAX_FREQ_ADJUST) freq_adjust = -MAX_FREQ_ADJUST;
+            
+            // 更新参考频率
+            float new_freq = g_ref_freq + freq_adjust;
+            printf("new_freq: %.6f\n", new_freq);
+            update_reference_frequency(new_freq);
+            
+            
+            // 重置所有窗口数据
+            g_window1_sum = 0.0f;
+            g_window2_sum = 0.0f;
+            g_window1_count = 0;
+            g_window2_count = 0;
+            
+            return 1;  // 表示频率已调整
+        }
+        
+        // 准备下一轮比较：将窗口2的数据移到窗口1
+        g_window1_sum = 0.0f;
+        g_window2_sum = 0.0f;
+        g_window1_count = 0;
+        g_window2_count = 0;
+    }
+    
+    g_last_phase = current_phase;
+    return 0;  // 表示频率未调整
 }
