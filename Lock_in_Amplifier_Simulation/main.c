@@ -43,7 +43,6 @@ OutputMode g_output_mode = OUTPUT_MODE_REF_COS_AND_RECOVERED;
 
 // 参考信号参数
 #define REF_FREQ_OFFSET 0.001f   // 参考信号相对于待测信号的频率偏移 (Hz)
-// 将参考频率改为全局变量
 float g_ref_freq = INPUT_FREQ + REF_FREQ_OFFSET;  // 参考信号频率 (Hz)
 #define LUT_SIZE 8192        // 参考信号查找表的大小 (一个周期的点数)
 
