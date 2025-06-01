@@ -28,12 +28,20 @@ OutputMode g_output_mode = OUTPUT_MODE_REF_COS_AND_RECOVERED;
 #define AVERAGE_TIME 0.1f      // 平均时间窗口长度（秒）
 #define BUFFER_SIZE ((int)(SAMPLING_RATE * AVERAGE_TIME)) // 缓冲区大小
 
-// 待测信号参数 (用于生成模拟输入)
-#define INPUT_FREQ 50.0f       // 待测信号中的目标频率 (Hz)
-#define INPUT_AMPLITUDE 1.3f   // 待测信号中目标频率分量的幅值 (V)
-#define INPUT_PHASE_DEG 80.0f  // 待测信号中目标频率分量的相位 (度)
-#define INPUT_DC_OFFSET 1.7f   // 待测信号的直流偏置 (V)
-                               // 使得信号范围如 0.4V (1.7-1.3) 到 3.0V (1.7+1.3)
+
+// 待测信号1参数 (用于生成模拟输入)
+#define SIGNAL1_DURATION 25.0f  // 第一段信号持续时间 (秒)
+#define INPUT1_FREQ 50.0f       // 待测信号1中的目标频率 (Hz)
+#define INPUT1_AMPLITUDE 1.3f   // 待测信号1中目标频率分量的幅值 (V)
+#define INPUT1_PHASE_DEG 80.0f  // 待测信号1中目标频率分量的相位 (度)
+#define INPUT1_DC_OFFSET 1.7f   // 待测信号1的直流偏置 (V)
+
+// 待测信号2参数 (用于生成模拟输入)
+#define SIGNAL2_DURATION 25.0f  // 第二段信号持续时间 (秒)
+#define INPUT2_FREQ 100.0f       // 待测信号2中的目标频率 (Hz)
+#define INPUT2_AMPLITUDE 1.5f   // 待测信号2中目标频率分量的幅值 (V)
+#define INPUT2_PHASE_DEG 15.0f  // 待测信号2中目标频率分量的相位 (度)
+#define INPUT2_DC_OFFSET 1.7f   // 待测信号2的直流偏置 (V)
 
 // 可选：添加一些噪声/干扰信号
 #define NOISE_FREQ_1 150.0f    // 第一个噪声频率 (Hz)
@@ -43,7 +51,7 @@ OutputMode g_output_mode = OUTPUT_MODE_REF_COS_AND_RECOVERED;
 
 // 参考信号参数
 #define REF_FREQ_OFFSET 0.001f   // 参考信号相对于待测信号的频率偏移 (Hz)
-float g_ref_freq = INPUT_FREQ + REF_FREQ_OFFSET;  // 参考信号频率 (Hz)
+float g_ref_freq = INPUT1_FREQ + REF_FREQ_OFFSET;  // 参考信号频率 (Hz)
 #define LUT_SIZE 8192        // 参考信号查找表的大小 (一个周期的点数)
 
 // 输出控制
@@ -82,8 +90,7 @@ int g_window1_count = 0;        // 第一个窗口的计数
 int g_window2_count = 0;        // 第二个窗口的计数
 
 // --- 函数声明 ---
-void generate_input_signal_buffer(float freq, float amplitude, float phase_deg, float dc_offset,
-                                  float noise_freq1, float noise_amp1, float noise_phase_deg1);
+void generate_input_signal_buffer(void);
 void generate_reference_lut(void);
 void get_reference_samples(float* cos_val, float* sin_val);
 void calculate_amplitude_and_phase(float X, float Y, float* amplitude, float* phase_deg);
@@ -99,15 +106,19 @@ int main() {
 
     start_time = clock(); // 记录开始时间
 
-    printf("锁相放大器算法模拟 (流式处理)\n");
+        printf("锁相放大器算法模拟 (流式处理)\n");
     printf("---------------------------------\n");
     printf("参数设置:\n");
     printf("  采样率: %.1f Hz\n", SAMPLING_RATE);
     printf("  信号时长 (模拟): %.2f s\n", SIGNAL_DURATION);
     printf("  总采样点数 (模拟): %d\n", NUM_SAMPLES);
-    printf("  待测信号 (目标): %.1f Hz, 幅值 %.2f V, 相位 %.1f 度, 直流偏置 %.2f V\n",
-           INPUT_FREQ, INPUT_AMPLITUDE, INPUT_PHASE_DEG, INPUT_DC_OFFSET);
-    printf("  (预期信号范围: %.2fV to %.2fV)\n", INPUT_DC_OFFSET - INPUT_AMPLITUDE, INPUT_DC_OFFSET + INPUT_AMPLITUDE);
+    printf("  信号1持续时间: %.1f s, 信号2持续时间: %.1f s\n", SIGNAL1_DURATION, SIGNAL2_DURATION);
+    printf("  待测信号1: %.1f Hz, 幅值 %.2f V, 相位 %.1f 度, 直流偏置 %.2f V\n",
+           INPUT1_FREQ, INPUT1_AMPLITUDE, INPUT1_PHASE_DEG, INPUT1_DC_OFFSET);
+    printf("  待测信号2: %.1f Hz, 幅值 %.2f V, 相位 %.1f 度, 直流偏置 %.2f V\n",
+           INPUT2_FREQ, INPUT2_AMPLITUDE, INPUT2_PHASE_DEG, INPUT2_DC_OFFSET);
+    printf("  (信号1预期范围: %.2fV to %.2fV)\n", INPUT1_DC_OFFSET - INPUT1_AMPLITUDE, INPUT1_DC_OFFSET + INPUT1_AMPLITUDE);
+    printf("  (信号2预期范围: %.2fV to %.2fV)\n", INPUT2_DC_OFFSET - INPUT2_AMPLITUDE, INPUT2_DC_OFFSET + INPUT2_AMPLITUDE);
     printf("  噪声信号1: %.1f Hz, 幅值 %.2f V, 相位 %.1f 度\n",
            NOISE_FREQ_1, NOISE_AMPLITUDE_1, NOISE_PHASE_DEG_1);
     printf("  参考信号频率: %.1f Hz, LUT大小: %d\n", g_ref_freq, LUT_SIZE);
@@ -134,11 +145,8 @@ int main() {
 
     // 初始化缓冲区
     memset(X_buffer, 0, BUFFER_SIZE * sizeof(float));
-    memset(Y_buffer, 0, BUFFER_SIZE * sizeof(float));
-
-    // 2. 预生成待测信号序列 (模拟ADC的连续输入源)
-    generate_input_signal_buffer(INPUT_FREQ, INPUT_AMPLITUDE, INPUT_PHASE_DEG, INPUT_DC_OFFSET,
-                               NOISE_FREQ_1, NOISE_AMPLITUDE_1, NOISE_PHASE_DEG_1);
+    memset(Y_buffer, 0, BUFFER_SIZE * sizeof(float));    // 2. 预生成待测信号序列 (模拟ADC的连续输入源)
+    generate_input_signal_buffer();
     printf("待测信号缓存已生成.\n");
 
     // // 输出待测信号前100个样本 (调试用)
@@ -194,10 +202,10 @@ int main() {
     while (1) { 
         
         // 调试，在time为30s时，更新参考频率
-        float time_30s = 30.0f;
+        float time_30s = 25.0f;
         int sample_index_30s = (int)(time_30s * SAMPLING_RATE);
         if (i == sample_index_30s) {
-            update_reference_frequency(50.1f);
+            update_reference_frequency(101.0f);
         }
 
 
@@ -360,29 +368,47 @@ float get_simulated_adc_sample(int sample_index) {
 /**
  * @brief 生成待测信号并存储到全局缓冲区 input_signal_buffer
  * 
- * @param freq 待测信号的目标频率 (Hz)
- * @param amplitude 待测信号的目标幅值 (V)
- * @param phase_deg 待测信号的目标相位 (度)
- * @param dc_offset 待测信号的直流偏置 (V)
- * @param noise_freq1 第一个噪声信号的频率 (Hz)
- * @param noise_amp1 第一个噪声信号的幅值 (V)
- * @param noise_phase_deg1 第一个噪声信号的相位 (度)
+ * 生成两段不同的信号：
+ * - 前SIGNAL1_DURATION秒为信号1参数
+ * - 后SIGNAL2_DURATION秒为信号2参数
  *
  * 信号模型: s(t) = dc_offset + A * cos(2*pi*f*t - phi) + Noise(t)
  */
-void generate_input_signal_buffer(float freq, float amplitude, float phase_deg, float dc_offset,
-                                  float noise_freq1, float noise_amp1, float noise_phase_deg1) {
+void generate_input_signal_buffer(void) {
     float t;
-    float phase_rad = phase_deg * M_PI / 180.0f;
-    float noise_phase_rad1 = noise_phase_deg1 * M_PI / 180.0f;
+    
+    // 计算信号1和信号2的采样点边界
+    int signal1_samples = (int)(SIGNAL1_DURATION * SAMPLING_RATE);
+    int signal2_samples = (int)(SIGNAL2_DURATION * SAMPLING_RATE);
+    
+    // 确保不超过总采样点数
+    if (signal1_samples + signal2_samples > NUM_SAMPLES) {
+        signal1_samples = NUM_SAMPLES / 2;
+        signal2_samples = NUM_SAMPLES - signal1_samples;
+    }
 
     for (int i = 0; i < NUM_SAMPLES; ++i) {
         t = (float)i / SAMPLING_RATE;
-
-        float target_component = amplitude * cosf(2.0f * M_PI * freq * t - phase_rad);
-        float noise_component = noise_amp1 * cosf(2.0f * M_PI * noise_freq1 * t - noise_phase_rad1);
-
-        input_signal_buffer[i] = dc_offset + target_component + noise_component;
+        
+        if (i < signal1_samples) {
+            // 生成信号1
+            float phase_rad1 = INPUT1_PHASE_DEG * M_PI / 180.0f;
+            float noise_phase_rad1 = NOISE_PHASE_DEG_1 * M_PI / 180.0f;
+            
+            float target_component = INPUT1_AMPLITUDE * cosf(2.0f * M_PI * INPUT1_FREQ * t - phase_rad1);
+            float noise_component = NOISE_AMPLITUDE_1 * cosf(2.0f * M_PI * NOISE_FREQ_1 * t - noise_phase_rad1);
+            
+            input_signal_buffer[i] = INPUT1_DC_OFFSET + target_component + noise_component;
+        } else {
+            // 生成信号2
+            float phase_rad2 = INPUT2_PHASE_DEG * M_PI / 180.0f;
+            float noise_phase_rad1 = NOISE_PHASE_DEG_1 * M_PI / 180.0f;
+            
+            float target_component = INPUT2_AMPLITUDE * cosf(2.0f * M_PI * INPUT2_FREQ * t - phase_rad2);
+            float noise_component = NOISE_AMPLITUDE_1 * cosf(2.0f * M_PI * NOISE_FREQ_1 * t - noise_phase_rad1);
+            
+            input_signal_buffer[i] = INPUT2_DC_OFFSET + target_component + noise_component;
+        }
     }
 }
 
