@@ -41,6 +41,7 @@ ax2 = ax1.twinx()
 ax2.plot(lock_in_output['时间(s)'], lock_in_output['相位(deg)'], 'r-', label='相位')
 ax2.set_ylabel('相位 (度)')
 ax2.legend(loc='upper right')
+plt.xlim(3, 3.3)
 
 # 4. 原始信号与还原信号对比（放大显示）
 plt.subplot(714)  # 修改为7行1列的第4个

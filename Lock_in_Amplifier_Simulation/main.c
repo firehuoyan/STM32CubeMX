@@ -23,7 +23,7 @@ OutputMode g_output_mode = OUTPUT_MODE_REF_COS_AND_RECOVERED;
 // --- 可配置参数 ---
 // 信号参数
 #define SAMPLING_RATE 10000.0f // 采样率 (Hz)，例如10kHz
-#define SIGNAL_DURATION 5.0f   // 信号持续时间 (秒) - 用于生成待测信号的总长度
+#define SIGNAL_DURATION 50.0f   // 信号持续时间 (秒) - 用于生成待测信号的总长度
 #define NUM_SAMPLES ((int)(SAMPLING_RATE * SIGNAL_DURATION)) // 总采样点数
 #define AVERAGE_TIME 0.1f      // 平均时间窗口长度（秒）
 #define BUFFER_SIZE ((int)(SAMPLING_RATE * AVERAGE_TIME)) // 缓冲区大小
@@ -40,9 +40,11 @@ OutputMode g_output_mode = OUTPUT_MODE_REF_COS_AND_RECOVERED;
 #define NOISE_AMPLITUDE_1 0.0f // 第一个噪声幅值 (V)
 #define NOISE_PHASE_DEG_1 0.0f // 第一个噪声相位 (度)
 
+
 // 参考信号参数
-#define REF_FREQ_OFFSET 0.0f   // 参考信号相对于待测信号的频率偏移 (Hz)
-#define REF_FREQ (INPUT_FREQ + REF_FREQ_OFFSET)  // 参考信号频率 (Hz)
+#define REF_FREQ_OFFSET 0.001f   // 参考信号相对于待测信号的频率偏移 (Hz)
+// 将参考频率改为全局变量
+float g_ref_freq = INPUT_FREQ + REF_FREQ_OFFSET;  // 参考信号频率 (Hz)
 #define LUT_SIZE 8192        // 参考信号查找表的大小 (一个周期的点数)
 
 // 输出控制
@@ -67,9 +69,10 @@ double ref_phase_accumulator = 0.0f;
 void generate_input_signal_buffer(float freq, float amplitude, float phase_deg, float dc_offset,
                                   float noise_freq1, float noise_amp1, float noise_phase_deg1);
 void generate_reference_lut(void);
-void get_reference_samples(float* cos_val, float* sin_val); // 参数是指针
-void calculate_amplitude_and_phase(float X, float Y, float* amplitude, float* phase_deg); // 参数是指针
-float get_simulated_adc_sample(int sample_index); // 模拟从ADC读取一个样本
+void get_reference_samples(float* cos_val, float* sin_val);
+void calculate_amplitude_and_phase(float X, float Y, float* amplitude, float* phase_deg);
+float get_simulated_adc_sample(int sample_index);
+void update_reference_frequency(float new_freq);  // 新增函数声明
 
 // --- 主函数 ---
 int main() {
@@ -89,7 +92,7 @@ int main() {
     printf("  (预期信号范围: %.2fV to %.2fV)\n", INPUT_DC_OFFSET - INPUT_AMPLITUDE, INPUT_DC_OFFSET + INPUT_AMPLITUDE);
     printf("  噪声信号1: %.1f Hz, 幅值 %.2f V, 相位 %.1f 度\n",
            NOISE_FREQ_1, NOISE_AMPLITUDE_1, NOISE_PHASE_DEG_1);
-    printf("  参考信号频率: %.1f Hz, LUT大小: %d\n", REF_FREQ, LUT_SIZE);
+    printf("  参考信号频率: %.1f Hz, LUT大小: %d\n", g_ref_freq, LUT_SIZE);
     printf("  平均时间窗口: %.2f s\n", AVERAGE_TIME);
     printf("  每隔 %.2f 秒输出一次结果\n", PRINT_INTERVAL_SEC);
     printf("  当前输出模式: %d (1:重建信号, 2:内部参考, 3:参考余弦+重建)\n", g_output_mode);
@@ -171,6 +174,14 @@ int main() {
     // 4. 模拟连续处理
     int i = 0; // 初始化采样索引
     while (1) { // 修改为无限循环
+        // // 调试，在time为30s时，更新参考频率
+        // float time_30s = 30.0f;
+        // int sample_index_30s = (int)(time_30s * SAMPLING_RATE);
+        // if (i == sample_index_30s) {
+        //     update_reference_frequency(50.0f);
+        // }
+
+
         // 4.1 模拟从ADC获取当前采样值
         float current_input_sample = get_simulated_adc_sample(i);
 
@@ -217,45 +228,45 @@ int main() {
         // 4.6 还原信号
         float current_time = (float)i / SAMPLING_RATE;
         float recovered_phase_rad = recovered_phase_deg * M_PI / 180.0f;
-        float recovered_signal = recovered_amplitude * cosf(2.0f * M_PI * REF_FREQ * current_time - recovered_phase_rad);
+        float recovered_signal = recovered_amplitude * cosf(2.0f * M_PI * g_ref_freq * current_time - recovered_phase_rad);
 
         // 4.7 定期输出结果
-        // // 调试内容
-        // if ((i + 1) % PRINT_INTERVAL_SAMPLES == 0) { 
-        //     printf("time:%.4f\t input:%.4f\t X:%.4f\t Y:%.4f\t amp:%.4f\t phase:%.2f\t rec:%.4f\n",
-        //            current_time,
-        //            current_input_sample,
-        //            current_filtered_X,
-        //            current_filtered_Y,
-        //            recovered_amplitude,
-        //            recovered_phase_deg,
-        //            recovered_signal);
-        //     fflush(stdout);
-        // }
-
-        // 第一部分输出：重建信号的频率、幅值和相位
-        printf("\n--- 当前重建信号参数 ---\n");
-        printf("频率: %.2f Hz\n", REF_FREQ);
-        printf("幅值: %.4f V\n", recovered_amplitude);
-        printf("相位: %.2f 度\n", recovered_phase_deg);
-        printf("---------------------------------\n");
-
-        // 根据输出模式添加新的输出
-        printf("--- 当前输出模式 %d 的额外信息 ---\n", g_output_mode);
-        switch (g_output_mode) {
-            case OUTPUT_MODE_RECOVERED_SIGNAL:
-                printf("待测信号: %.4f, 重建信号: %.4f V\n", current_input_sample, recovered_signal);
-                fprintf(fp_2, "%.4f,%.4f\n", current_input_sample, recovered_signal);
-                break;
-            case OUTPUT_MODE_INTERNAL_REF_SIGNALS:
-                printf("内部参考信号 - 余弦: %.4f, 正弦: %.4f\n", current_ref_cos, current_ref_sin);
-                fprintf(fp_2, "%.4f,%.4f\n", current_ref_cos, current_ref_sin);
-                break;
-            case OUTPUT_MODE_REF_COS_AND_RECOVERED:
-                printf("参考余弦: %.4f, 重建信号: %.4f V\n", current_ref_cos, recovered_signal);
-                fprintf(fp_2, "%.4f,%.4f\n", current_ref_cos, recovered_signal);
-                break;
+        // 调试内容
+        if ((i + 1) % PRINT_INTERVAL_SAMPLES == 0) { 
+            printf("time:%.4f\t input:%.4f\t X:%.4f\t Y:%.4f\t amp:%.4f\t phase:%.2f\t rec:%.4f\n",
+                   current_time,
+                   current_input_sample,
+                   current_filtered_X,
+                   current_filtered_Y,
+                   recovered_amplitude,
+                   recovered_phase_deg,
+                   recovered_signal);
+            fflush(stdout);
         }
+
+        // // 第一部分输出：重建信号的频率、幅值和相位
+        // printf("\n--- 当前重建信号参数 ---\n");
+        // printf("频率: %.2f Hz\n", REF_FREQ);
+        // printf("幅值: %.4f V\n", recovered_amplitude);
+        // printf("相位: %.2f 度\n", recovered_phase_deg);
+        // printf("---------------------------------\n");
+
+        // // 根据输出模式添加新的输出
+        // printf("--- 当前输出模式 %d 的额外信息 ---\n", g_output_mode);
+        // switch (g_output_mode) {
+        //     case OUTPUT_MODE_RECOVERED_SIGNAL:
+        //         printf("待测信号: %.4f, 重建信号: %.4f V\n", current_input_sample, recovered_signal);
+        //         fprintf(fp_2, "%.4f,%.4f\n", current_input_sample, recovered_signal);
+        //         break;
+        //     case OUTPUT_MODE_INTERNAL_REF_SIGNALS:
+        //         printf("内部参考信号 - 余弦: %.4f, 正弦: %.4f\n", current_ref_cos, current_ref_sin);
+        //         fprintf(fp_2, "%.4f,%.4f\n", current_ref_cos, current_ref_sin);
+        //         break;
+        //     case OUTPUT_MODE_REF_COS_AND_RECOVERED:
+        //         printf("参考余弦: %.4f, 重建信号: %.4f V\n", current_ref_cos, recovered_signal);
+        //         fprintf(fp_2, "%.4f,%.4f\n", current_ref_cos, recovered_signal);
+        //         break;
+        // }
 
 
         // // 输出最后100个样本 (调试用)
@@ -265,21 +276,19 @@ int main() {
         //            recovered_amplitude, recovered_phase_deg);
         // }
 
-        // // 将结果保存到文件
-        // FILE* fp = fopen("lock_in_output.csv", "a");
-        // if (fp) {
-        //     fprintf(fp, "%.4f,%.4f,%.4f,%.4f,%.4f,%.2f,%.4f,%.4f,%.4f\n",
-        //             current_time,
-        //             current_input_sample,
-        //             current_filtered_X,
-        //             current_filtered_Y,
-        //             recovered_amplitude,
-        //             recovered_phase_deg,
-        //             recovered_signal,
-        //             current_ref_cos,
-        //             current_ref_sin);
-        //     fclose(fp);
-        // }
+        // 将结果保存到文件
+        if (fp) {
+            fprintf(fp, "%.4f,%.4f,%.4f,%.4f,%.4f,%.2f,%.4f,%.4f,%.4f\n",
+                    current_time,
+                    current_input_sample,
+                    current_filtered_X,
+                    current_filtered_Y,
+                    recovered_amplitude,
+                    recovered_phase_deg,
+                    recovered_signal,
+                    current_ref_cos,
+                    current_ref_sin);
+        }
 
         i++; // 在循环末尾递增采样索引
 
@@ -364,14 +373,26 @@ void generate_reference_lut(void) {
 }
 
 /**
+ * @brief 更新参考信号频率
+ * @param new_freq 新的参考信号频率 (Hz)
+ */
+void update_reference_frequency(float new_freq) {
+    g_ref_freq = new_freq;
+    // 重新生成查找表
+    generate_reference_lut();
+    // 重置相位累加器
+    ref_phase_accumulator = 0.0f;
+}
+
+/**
  * @brief 从查找表获取当前周期的参考正余弦值，并更新相位累加器
  *
  * @param cos_val 指针，用于返回当前的余弦参考值
  * @param sin_val 指针，用于返回当前的正弦参考值
  */
 void get_reference_samples(float* cos_val, float* sin_val) {
-    // 只在第一次调用时计算一次
-    static float phase_increment = (REF_FREQ / SAMPLING_RATE) * (float)LUT_SIZE;
+    
+    float phase_increment = (g_ref_freq / SAMPLING_RATE) * (float)LUT_SIZE;
 
     // // 查表方法 (四舍五入)
     // unsigned int lut_index = (unsigned int)(ref_phase_accumulator + 0.5f) % LUT_SIZE;
@@ -384,10 +405,9 @@ void get_reference_samples(float* cos_val, float* sin_val) {
     // floorf确保向下取整, 例如 current_exact_phase = 3.7, index_floor = 3
     // current_exact_phase = 3.0, index_floor = 3
     unsigned int index_floor = (unsigned int)floorf(current_exact_phase);
-    float fraction = current_exact_phase - (float)index_floor; // 小数部分, e.g., 0.7 or 0.0
-    // 计算在LUT中实际使用的两个索引 (考虑环绕)
-    unsigned int lut_idx0 = index_floor % LUT_SIZE;       // 第一个采样点索引, e.g., 3 % LUT_SIZE
-    unsigned int lut_idx1 = (index_floor + 1) % LUT_SIZE; // 第二个采样点索引, e.g., (3+1) % LUT_SIZE
+    float fraction = current_exact_phase - (float)index_floor;
+    unsigned int lut_idx0 = index_floor % LUT_SIZE;
+    unsigned int lut_idx1 = (index_floor + 1) % LUT_SIZE;
     // 对余弦分量进行线性插值
     float cos_val0 = ref_cos_lut[lut_idx0];
     float cos_val1 = ref_cos_lut[lut_idx1];
@@ -397,8 +417,8 @@ void get_reference_samples(float* cos_val, float* sin_val) {
     float sin_val1 = ref_sin_lut[lut_idx1];
     *sin_val = sin_val0 + fraction * (sin_val1 - sin_val0);
 
+    // 更新相位累加器
     ref_phase_accumulator += phase_increment;
-
     if (ref_phase_accumulator >= (float)LUT_SIZE) {
          ref_phase_accumulator = fmodf(ref_phase_accumulator, (float)LUT_SIZE);
     }
