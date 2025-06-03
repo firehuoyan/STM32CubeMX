@@ -69,6 +69,11 @@ float* X_buffer = NULL;
 float* Y_buffer = NULL;
 int buffer_index = 0;
 int buffer_filled = 0;
+// 用于增量平均值计算的全局变量
+float sum_X = 0.0f;     // X缓冲区的总和
+float sum_Y = 0.0f;     // Y缓冲区的总和
+int buffer_count = 0;   // 当前缓冲区中有效数据数量
+
 
 // 参考信号相位累加器
 double ref_phase_accumulator = 0.0f;
@@ -93,6 +98,7 @@ int g_window1_count = 0;        // 第一个窗口的计数
 int g_window2_count = 0;        // 第二个窗口的计数
 int g_window3_count = 0;        // 第三个窗口的计数
 int g_window4_count = 0;        // 第四个窗口的计数
+int i = 0;                      // 循环计数器
 
 // --- 函数声明 ---
 void generate_input_signal_buffer(void);
@@ -109,7 +115,7 @@ int main() {
     clock_t start_time, end_time;
     double cpu_time_used;
 
-    start_time = clock(); // 记录开始时间
+    // start_time = clock(); // 记录开始时间
 
         printf("锁相放大器算法模拟 (流式处理)\n");
     printf("---------------------------------\n");
@@ -202,14 +208,17 @@ int main() {
 
     printf("Time(s)\t ADC(V)\t X_filt\t Y_filt\t Amp(V)\t Phase(deg)\t Recovered(V)\t RefCos\t RefSin\n");
 
+    start_time = clock(); // 记录开始时间
     // 4. 模拟连续处理
-    int i = 0; // 初始化采样索引
     while (1) { 
 
-        // 记数超过一千次，则while循环不执行后续任务 TODO数组半满的时候把loop_count清零
-        while (i > 1000) {
+        // // 记数超过一千次，则while循环不执行后续任务 TODO数组半满的时候把loop_count清零
+        // while (i > 1000) {
 
-        }
+        // }
+        // if (i == 0) {
+        //     // 把ADC数组复制到input_signal_buffer中
+        // }
         
         
         // // 调试，在time为30s时，更新参考频率 TODO 控制频率命令
@@ -233,31 +242,46 @@ int main() {
 
         // 4.4 更新缓冲区并计算平均值
         float current_filtered_X, current_filtered_Y;
+        // X_buffer[buffer_index] = mixed_X;
+        // Y_buffer[buffer_index] = mixed_Y;
+        // if (buffer_index >= BUFFER_SIZE - 1) {
+        //     buffer_filled = 1;
+        // }
+        // // 计算平均值
+        // float sum_X = 0.0f;
+        // float sum_Y = 0.0f;
+        // // 始终使用完整缓冲区大小进行平均，未填充的部分自动为0
+        // for (int j = 0; j < BUFFER_SIZE; j++) {
+        //     if (j <= buffer_index || buffer_filled) {
+        //         sum_X += X_buffer[j];
+        //         sum_Y += Y_buffer[j];
+        //     }
+        // }
+        // // 始终除以完整的缓冲区大小
+        // current_filtered_X = sum_X / BUFFER_SIZE;
+        // current_filtered_Y = sum_Y / BUFFER_SIZE;
+        // // 更新缓冲区索引
+        // buffer_index = (buffer_index + 1) % BUFFER_SIZE;
+        // 优化版本
+        // 如果缓冲区已满，减去要被覆盖的值
+        if (buffer_count >= BUFFER_SIZE) {
+            sum_X -= X_buffer[buffer_index];
+            sum_Y -= Y_buffer[buffer_index];
+        } else {
+            buffer_count++;
+        }
+        // 添加新值到缓冲区和总和
         X_buffer[buffer_index] = mixed_X;
         Y_buffer[buffer_index] = mixed_Y;
-        
-        if (buffer_index >= BUFFER_SIZE - 1) {
-            buffer_filled = 1;
-        }
-        
+        sum_X += mixed_X;
+        sum_Y += mixed_Y;
         // 计算平均值
-        float sum_X = 0.0f;
-        float sum_Y = 0.0f;
-        
-        // 始终使用完整缓冲区大小进行平均，未填充的部分自动为0
-        for (int j = 0; j < BUFFER_SIZE; j++) {
-            if (j <= buffer_index || buffer_filled) {
-                sum_X += X_buffer[j];
-                sum_Y += Y_buffer[j];
-            }
-        }
-        
-        // 始终除以完整的缓冲区大小
-        current_filtered_X = sum_X / BUFFER_SIZE;
-        current_filtered_Y = sum_Y / BUFFER_SIZE;
-        
+        current_filtered_X = sum_X / buffer_count;
+        current_filtered_Y = sum_Y / buffer_count;
         // 更新缓冲区索引
         buffer_index = (buffer_index + 1) % BUFFER_SIZE;
+
+        
 
         // 4.5 计算幅值和相位
         float recovered_amplitude, recovered_phase_deg;
@@ -276,19 +300,19 @@ int main() {
         float recovered_signal = recovered_amplitude * cosf(2.0f * M_PI * g_ref_freq * current_time - recovered_phase_rad);
 
         // 4.7 定期输出结果
-        // 调试内容
-        if ((i + 1) % PRINT_INTERVAL_SAMPLES == 0) { 
-            printf("time:%.4f\t input:%.4f\t X:%.4f\t Y:%.4f\t amp:%.4f\t phase:%.2f\t rec:%.4f\t freq:%.4f\n",
-                   current_time,
-                   current_input_sample,
-                   current_filtered_X,
-                   current_filtered_Y,
-                   recovered_amplitude,
-                   recovered_phase_deg,
-                   recovered_signal,
-                   g_ref_freq);
-            fflush(stdout);
-        }
+        // // 调试内容
+        // if ((i + 1) % PRINT_INTERVAL_SAMPLES == 0) { 
+        //     printf("time:%.4f\t input:%.4f\t X:%.4f\t Y:%.4f\t amp:%.4f\t phase:%.2f\t rec:%.4f\t freq:%.4f\n",
+        //            current_time,
+        //            current_input_sample,
+        //            current_filtered_X,
+        //            current_filtered_Y,
+        //            recovered_amplitude,
+        //            recovered_phase_deg,
+        //            recovered_signal,
+        //            g_ref_freq);
+        //     fflush(stdout);
+        // }
 
         // // 第一部分输出：重建信号的频率、幅值和相位  TODO串口输出
         // printf("\n--- 当前重建信号参数 ---\n");
@@ -343,6 +367,7 @@ int main() {
             break;
         }
     }
+    end_time = clock(); // 记录结束时间
     
     // 关闭文件
     fclose(fp);
@@ -356,9 +381,9 @@ int main() {
     printf("---------------------------------\n");
     printf("模拟处理完成.\n");
 
-    end_time = clock(); // 记录结束时间
+    // end_time = clock(); // 记录结束时间
     cpu_time_used = ((double) (end_time - start_time)) / CLOCKS_PER_SEC;
-    printf("程序运行时间: %.4f 秒\n", cpu_time_used);
+    printf("while程序运行时间: %.4f 秒\n", cpu_time_used);
 
     return 0;
 }
