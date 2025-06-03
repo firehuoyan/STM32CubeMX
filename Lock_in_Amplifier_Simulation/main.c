@@ -54,6 +54,7 @@ OutputMode g_output_mode = OUTPUT_MODE_REF_COS_AND_RECOVERED;
 #define REF_FREQ_OFFSET 0.01f   // 参考信号相对于待测信号的频率偏移 (Hz)
 float g_ref_freq = INPUT1_FREQ + REF_FREQ_OFFSET;  // 参考信号频率 (Hz)
 #define LUT_SIZE 8192        // 参考信号查找表的大小 (一个周期的点数)
+#define ATAN2_LUT_SIZE 1024 // atan2查找表的大小 (用于快速计算相位)
 
 // 输出控制
 #define PRINT_INTERVAL_SEC 0.1f   // 每隔多少秒打印一次结果
@@ -63,6 +64,8 @@ float g_ref_freq = INPUT1_FREQ + REF_FREQ_OFFSET;  // 参考信号频率 (Hz)
 float* input_signal_buffer = NULL; // 修改为指针
 float ref_cos_lut[LUT_SIZE];            // 参考余弦查找表
 float ref_sin_lut[LUT_SIZE];            // 参考正弦查找表
+float atan2_lut[ATAN2_LUT_SIZE];    // atan2查找表
+
 
 // 环形缓冲区用于存储过去一秒的数据
 float* X_buffer = NULL;
@@ -108,6 +111,8 @@ void calculate_amplitude_and_phase(float X, float Y, float* amplitude, float* ph
 float get_simulated_adc_sample(int sample_index);
 void update_reference_frequency(float new_freq);
 int auto_frequency_tracking(float current_phase);
+void init_atan2_lut(void);
+float fast_atan2(float Y, float X);
 
 
 // --- 主函数 ---
@@ -184,6 +189,8 @@ int main() {
     // 3. 生成参考正余弦查找表
     generate_reference_lut();
     printf("参考信号查找表已生成.\n\n");
+
+    init_atan2_lut();       // 初始化 atan2 查找表
 
 
 
@@ -346,19 +353,19 @@ int main() {
         //            recovered_amplitude, recovered_phase_deg);
         // }
 
-        // 将结果保存到文件(调试用)
-        if (fp) {
-            fprintf(fp, "%.4f,%.4f,%.4f,%.4f,%.4f,%.2f,%.4f,%.4f,%.4f\n",
-                    current_time,
-                    current_input_sample,
-                    current_filtered_X,
-                    current_filtered_Y,
-                    recovered_amplitude,
-                    recovered_phase_deg,
-                    recovered_signal,
-                    current_ref_cos,
-                    current_ref_sin);
-        }
+        // // 将结果保存到文件(调试用)
+        // if (fp) {
+        //     fprintf(fp, "%.4f,%.4f,%.4f,%.4f,%.4f,%.2f,%.4f,%.4f,%.4f\n",
+        //             current_time,
+        //             current_input_sample,
+        //             current_filtered_X,
+        //             current_filtered_Y,
+        //             recovered_amplitude,
+        //             recovered_phase_deg,
+        //             recovered_signal,
+        //             current_ref_cos,
+        //             current_ref_sin);
+        // }
 
         i++; // 在循环末尾递增采样索引
 
@@ -542,7 +549,8 @@ void get_reference_samples(float* cos_val, float* sin_val) {
  */
 void calculate_amplitude_and_phase(float X, float Y, float* amplitude, float* phase_deg) {
     *amplitude = 2.0f * sqrtf(X * X + Y * Y);
-    float phase_rad = atan2f(Y, X);
+    // float phase_rad = atan2f(Y, X);
+    float phase_rad = fast_atan2(Y, X);  // 使用快速atan2
     *phase_deg = phase_rad * 180.0f / M_PI;
 }
 
@@ -653,4 +661,78 @@ int auto_frequency_tracking(float current_phase) {
     
     g_last_phase = current_phase;
     return 0;  // 表示频率未调整
+}
+
+
+// 初始化atan2快速查找表
+void init_atan2_lut(void) {
+    for (int j = 0; j < ATAN2_LUT_SIZE; j++) {
+        float ratio = (float)j / (ATAN2_LUT_SIZE - 1) * 2.0f - 1.0f; // -1 到 1
+        atan2_lut[j] = atan2f(ratio, 1.0f);
+    }
+}
+
+/**
+ * @brief 快速计算 atan2 的函数（带线性插值）
+ * @param Y Y 分量
+ * @param X X 分量
+ * @return 计算得到的角度（弧度）
+ */
+float fast_atan2(float Y, float X) {
+    // 特殊情况：X接近0
+    if (fabsf(X) < 1e-10f) {
+        return (Y > 0) ? M_PI/2 : -M_PI/2;
+    }
+    
+    float abs_Y = fabsf(Y);
+    float abs_X = fabsf(X);
+    
+    // 当Y的绝对值大于X时，切换坐标系计算
+    if (abs_Y > abs_X) {
+        float ratio_swapped = X / Y;  // 保证 |ratio_swapped| <= 1
+        
+        // 线性插值计算
+        float float_index = (ratio_swapped + 1.0f) * (ATAN2_LUT_SIZE - 1) / 2.0f;
+        int index1 = (int)float_index;
+        int index2 = index1 + 1;
+        
+        // 边界检查
+        if (index1 < 0) index1 = 0;
+        if (index2 >= ATAN2_LUT_SIZE) {
+            index1 = ATAN2_LUT_SIZE - 1;
+            index2 = ATAN2_LUT_SIZE - 1;
+        }
+        
+        // 线性插值
+        float fraction = float_index - index1;
+        float atan_val = atan2_lut[index1] + fraction * (atan2_lut[index2] - atan2_lut[index1]);
+        
+        return (Y > 0) ? M_PI/2 - atan_val : -M_PI/2 - atan_val;
+    }
+    
+    // 常规情况：abs_Y <= abs_X，保证 |Y/X| <= 1
+    float ratio = Y / X;
+    
+    // 线性插值计算
+    float float_index = (ratio + 1.0f) * (ATAN2_LUT_SIZE - 1) / 2.0f;
+    int index1 = (int)float_index;
+    int index2 = index1 + 1;
+    
+    // 边界检查
+    if (index1 < 0) index1 = 0;
+    if (index2 >= ATAN2_LUT_SIZE) {
+        index1 = ATAN2_LUT_SIZE - 1;
+        index2 = ATAN2_LUT_SIZE - 1;
+    }
+    
+    // 线性插值
+    float fraction = float_index - index1;
+    float base_angle = atan2_lut[index1] + fraction * (atan2_lut[index2] - atan2_lut[index1]);
+    
+    // 象限修正
+    if (X < 0) {
+        base_angle += (Y >= 0) ? M_PI : -M_PI;
+    }
+    
+    return base_angle;
 }
