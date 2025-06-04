@@ -462,6 +462,22 @@ void generate_reference_lut(void) {
         ref_cos_lut[i] = cosf(angle);
         ref_sin_lut[i] = sinf(angle);
     }
+    // 将参考表写入文件 (可选)
+    FILE* fp_cos = fopen("ref_cos_lut.csv", "w");
+    FILE* fp_sin = fopen("ref_sin_lut.csv", "w");
+    if (fp_cos && fp_sin) {
+        fprintf(fp_cos, "index,cos_value\n");
+        fprintf(fp_sin, "index,sin_value\n");
+        for (int i = 0; i < LUT_SIZE; ++i) {
+            fprintf(fp_cos, "%d,%.8f\n", i, ref_cos_lut[i]);
+            fprintf(fp_sin, "%d,%.8f\n", i, ref_sin_lut[i]);
+        }
+        fclose(fp_cos);
+        fclose(fp_sin);
+        printf("参考正余弦查找表已导出到 ref_cos_lut.csv 和 ref_sin_lut.csv.\n");
+    } else {
+        printf("无法写入查找表文件，跳过导出.\n");
+    }
 }
 
 /**
